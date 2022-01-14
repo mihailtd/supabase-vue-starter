@@ -1,0 +1,152 @@
+CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION supabase_admin;
+
+-- auth.users definition
+CREATE TABLE auth.users (
+  instance_id uuid NULL,
+  id uuid NOT NULL UNIQUE,
+  aud varchar(255) NULL,
+  "role" varchar(255) NULL,
+  email varchar(255) NULL UNIQUE,
+  encrypted_password varchar(255) NULL,
+  confirmed_at timestamptz NULL,
+  invited_at timestamptz NULL,
+  confirmation_token varchar(255) NULL,
+  confirmation_sent_at timestamptz NULL,
+  recovery_token varchar(255) NULL,
+  recovery_sent_at timestamptz NULL,
+  email_change_token varchar(255) NULL,
+  email_change varchar(255) NULL,
+  email_change_sent_at timestamptz NULL,
+  last_sign_in_at timestamptz NULL,
+  raw_app_meta_data jsonb NULL,
+  raw_user_meta_data jsonb NULL,
+  is_super_admin bool NULL,
+  created_at timestamptz NULL,
+  updated_at timestamptz NULL,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX users_instance_id_email_idx ON auth.users USING btree (instance_id, email);
+
+CREATE INDEX users_instance_id_idx ON auth.users USING btree (instance_id);
+
+COMMENT ON TABLE auth.users IS 'Auth: Stores user login data within a secure schema.';
+
+-- auth.refresh_tokens definition
+CREATE TABLE auth.refresh_tokens (
+  instance_id uuid NULL,
+  id bigserial NOT NULL,
+  "token" varchar(255) NULL,
+  user_id varchar(255) NULL,
+  revoked bool NULL,
+  created_at timestamptz NULL,
+  updated_at timestamptz NULL,
+  CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX refresh_tokens_instance_id_idx ON auth.refresh_tokens USING btree (instance_id);
+
+CREATE INDEX refresh_tokens_instance_id_user_id_idx ON auth.refresh_tokens USING btree (instance_id, user_id);
+
+CREATE INDEX refresh_tokens_token_idx ON auth.refresh_tokens USING btree (token);
+
+COMMENT ON TABLE auth.refresh_tokens IS 'Auth: Store of tokens used to refresh JWT tokens once they expire.';
+
+-- auth.instances definition
+CREATE TABLE auth.instances (
+  id uuid NOT NULL,
+  uuid uuid NULL,
+  raw_base_config text NULL,
+  created_at timestamptz NULL,
+  updated_at timestamptz NULL,
+  CONSTRAINT instances_pkey PRIMARY KEY (id)
+);
+
+COMMENT ON TABLE auth.instances IS 'Auth: Manages users across multiple sites.';
+
+-- auth.audit_log_entries definition
+CREATE TABLE auth.audit_log_entries (
+  instance_id uuid NULL,
+  id uuid NOT NULL,
+  payload json NULL,
+  created_at timestamptz NULL,
+  CONSTRAINT audit_log_entries_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX audit_logs_instance_id_idx ON auth.audit_log_entries USING btree (instance_id);
+
+COMMENT ON TABLE auth.audit_log_entries IS 'Auth: Audit trail for user actions.';
+
+-- auth.schema_migrations definition
+CREATE TABLE auth.schema_migrations (
+  "version" varchar(255) NOT NULL,
+  CONSTRAINT schema_migrations_pkey PRIMARY KEY ("version")
+);
+
+COMMENT ON TABLE auth.schema_migrations IS 'Auth: Manages updates to the auth system.';
+
+INSERT INTO auth.schema_migrations (version)
+  VALUES ('20171026211738'), ('20171026211808'), ('20171026211834'), ('20180103212743'), ('20180108183307'), ('20180119214651'), ('20180125194653');
+
+CREATE OR REPLACE FUNCTION auth.uid ()
+  RETURNS uuid
+  LANGUAGE sql
+  STABLE
+  AS $$
+  SELECT
+    coalesce(current_setting('request.jwt.claim.sub', TRUE), (current_setting('request.jwt.claims', TRUE)::jsonb ->> 'sub'))::uuid
+$$;
+
+CREATE OR REPLACE FUNCTION auth.role ()
+  RETURNS text
+  LANGUAGE sql
+  STABLE
+  AS $$
+  SELECT
+    coalesce(current_setting('request.jwt.claim.role', TRUE), (current_setting('request.jwt.claims', TRUE)::jsonb ->> 'role'))::text
+$$;
+
+CREATE OR REPLACE FUNCTION auth.email ()
+  RETURNS text
+  LANGUAGE sql
+  STABLE
+  AS $$
+  SELECT
+    coalesce(current_setting('request.jwt.claim.email', TRUE), (current_setting('request.jwt.claims', TRUE)::jsonb ->> 'email'))::text
+$$;
+
+-- usage on auth functions to API roles
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+
+-- Supabase super admin
+CREATE USER supabase_auth_admin NOINHERIT CREATEROLE LOGIN NOREPLICATION;
+
+GRANT ALL PRIVILEGES ON SCHEMA auth TO supabase_auth_admin;
+
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO supabase_auth_admin;
+
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO supabase_auth_admin;
+
+ALTER USER supabase_auth_admin SET search_path = "auth";
+
+ALTER TABLE "auth".users OWNER TO supabase_auth_admin;
+
+ALTER TABLE "auth".refresh_tokens OWNER TO supabase_auth_admin;
+
+ALTER TABLE "auth".audit_log_entries OWNER TO supabase_auth_admin;
+
+ALTER TABLE "auth".instances OWNER TO supabase_auth_admin;
+
+ALTER TABLE "auth".schema_migrations OWNER TO supabase_auth_admin;
+
+ALTER FUNCTION "auth"."uid" OWNER TO supabase_auth_admin;
+
+ALTER FUNCTION "auth"."role" OWNER TO supabase_auth_admin;
+
+ALTER FUNCTION "auth"."email" OWNER TO supabase_auth_admin;
+
+GRANT EXECUTE ON FUNCTION "auth"."uid" () TO PUBLIC;
+
+GRANT EXECUTE ON FUNCTION "auth"."role" () TO PUBLIC;
+
+GRANT EXECUTE ON FUNCTION "auth"."email" () TO PUBLIC;
